@@ -64,7 +64,10 @@ export function ApplicationForm({ open, onOpenChange, initial, onSaved }) {
     { section: "Additional", name: "notes", label: "Notes", type: "textarea", colSpan: 2, rows: 3 },
   ];
 
-  const initialValues = initial ? { ...initial, tags_text: (initial.tags || []).join(", ") } : {};
+  const defaults = { status: "Applied", application_date: new Date().toISOString().slice(0, 10) };
+  const initialValues = initial
+    ? { ...(initial.id ? {} : defaults), ...initial, tags_text: (initial.tags || []).join(", ") }
+    : defaults;
 
   const handleSubmit = async (values) => {
     const payload = { ...values };

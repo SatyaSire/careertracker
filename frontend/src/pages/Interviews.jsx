@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import api, { fmtDateTime, fmtDate } from "@/lib/api";
 import { PageHeader, EmptyState, LoadingState } from "@/components/PageStates";
 import { InterviewForm } from "@/components/InterviewForm";
@@ -41,7 +41,13 @@ export default function Interviews() {
   const [editing, setEditing] = useState(null);
   const [del, setDel] = useState(null);
 
-  const load = useCallback(() => { setLoading(true); api.get("/interviews").then(({ data }) => setItems(data)).finally(() => setLoading(false)); }, []);
+  const [sp] = useSearchParams();
+  const statusParam = sp.get("status");
+  const load = useCallback(() => {
+    setLoading(true);
+    api.get("/interviews", { params: statusParam ? { status: statusParam } : {} })
+      .then(({ data }) => setItems(data)).finally(() => setLoading(false));
+  }, [statusParam]);
   useEffect(load, [load]);
 
   const doDelete = async () => { await api.delete(`/interviews/${del.id}`); toast.success("Deleted"); setDel(null); load(); };

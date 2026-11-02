@@ -8,8 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { APPLICATION_STATUSES, APPLICATION_SOURCES } from "@/lib/constants";
 import { RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 
 const ALL = "__all";
+const EMPTY_DATA = {
+  total: 0, over_time_monthly: [], over_time_weekly: [], by_category: [], by_company: [], by_source: [],
+  funnel: [], outcomes: [], assessment_stats: [], interview_stats: [], profile_performance: [],
+  rates: { assessment_completion_pct: 0, assessment_pass_pct: 0, application_to_interview_pct: 0, interview_to_offer_pct: 0, rejection_pct: 0 },
+};
 const EMPTY = { date_from: "", date_to: "", category_id: ALL, company: "", status: ALL, source: ALL };
 
 const FilterSelect = ({ value, onChange, placeholder, items, testid }) => (
@@ -35,12 +41,13 @@ export default function Analytics() {
   const [data, setData] = useState(null);
   const [period, setPeriod] = useState("monthly");
 
-  useEffect(() => { api.get("/categories").then(({ data }) => setCats(data)); }, []);
+  useEffect(() => { api.get("/categories").then(({ data }) => setCats(data)).catch(() => {}); }, []);
 
   useEffect(() => {
     const params = {};
     Object.entries(filters).forEach(([k, v]) => { if (v && v !== ALL) params[k] = v; });
-    api.get("/analytics", { params }).then(({ data }) => setData(data));
+    api.get("/analytics", { params }).then(({ data }) => setData(data))
+      .catch(() => { toast.error("Could not load analytics"); setData(EMPTY_DATA); });
   }, [filters]);
 
   const set = (k) => (v) => setFilters((f) => ({ ...f, [k]: v }));

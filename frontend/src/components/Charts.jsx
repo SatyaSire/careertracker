@@ -53,7 +53,7 @@ export const PieChartCard = ({ title, data, testid }) => {
     <ChartShell title={title} empty={!nonZero.length} testid={testid}>
       <ResponsiveContainer width="100%" height={240}>
         <PieChart>
-          <Pie data={nonZero} dataKey="value" nameKey="label" cx="50%" cy="50%" outerRadius={85} innerRadius={50} paddingAngle={2}>
+          <Pie data={nonZero} dataKey="value" nameKey="label" cx="50%" cy="50%" outerRadius={85} innerRadius={50} paddingAngle={nonZero.length > 1 ? 2 : 0}>
             {nonZero.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
           </Pie>
           <Tooltip {...tooltipStyle} />

@@ -4,8 +4,10 @@ Single-user personal ATS + BI. All data scoped by user_id (ownership enforcement
 import os
 import io
 import csv
+import re
 import uuid
 import logging
+from starlette.concurrency import run_in_threadpool
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Any, Dict
@@ -318,9 +320,9 @@ async def list_applications(
     if source:
         q["source"] = source
     if company:
-        q["company_name"] = {"$regex": company, "$options": "i"}
+        q["company_name"] = {"$regex": re.escape(company), "$options": "i"}
     if search:
-        rx = {"$regex": search, "$options": "i"}
+        rx = {"$regex": re.escape(search), "$options": "i"}
         q["$or"] = [
             {"company_name": rx}, {"job_title": rx}, {"job_description": rx},
             {"category_name": rx}, {"email_used": rx}, {"phone_used": rx},
@@ -364,8 +366,8 @@ async def create_application(payload: Dict[str, Any], user: dict = Depends(get_c
     doc = {k: v for k, v in payload.items() if k not in ("id", "user_id", "_id")}
     doc["id"] = str(uuid.uuid4())
     doc["user_id"] = user["user_id"]
-    doc.setdefault("status", "Applied")
-    doc.setdefault("application_date", now_iso())
+    doc["status"] = doc.get("status") or "Applied"
+    doc["application_date"] = doc.get("application_date") or now_iso()
     doc.setdefault("tags", [])
     doc["created_at"] = now_iso()
     doc["updated_at"] = now_iso()
@@ -399,6 +401,9 @@ async def update_application(app_id: str, payload: Dict[str, Any], user: dict = 
     if not existing:
         raise HTTPException(status_code=404, detail="Not found")
     updates = {k: v for k, v in payload.items() if k not in ("id", "user_id", "_id", "created_at")}
+    for k in ("status", "application_date"):
+        if k in updates and not updates[k]:
+            updates.pop(k)
     updates["updated_at"] = now_iso()
     new_status = updates.get("status")
     if new_status and new_status != existing.get("status"):
@@ -438,9 +443,15 @@ async def duplicate_application(app_id: str, user: dict = Depends(get_current_us
     dup["id"] = str(uuid.uuid4())
     dup["job_title"] = f"{src.get('job_title','')} (Copy)"
     dup["status"] = "Saved / Interested"
+    dup["application_date"] = now_iso()
     dup["created_at"] = now_iso()
     dup["updated_at"] = now_iso()
     await db.applications.insert_one(dup)
+    await db.application_status_history.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user["user_id"], "application_id": dup["id"],
+        "previous_status": None, "new_status": dup["status"], "notes": "Duplicated from existing application",
+        "created_at": now_iso(),
+    })
     await log_activity(user["user_id"], "created", "Application", dup["id"], "Application duplicated", application_id=dup["id"])
     return clean(await db.applications.find_one({"id": dup["id"]}, {"_id": 0}))
 
@@ -457,8 +468,14 @@ async def list_assessments(application_id: Optional[str] = None, status: Optiona
     return await db.assessments.find(q, {"_id": 0}).sort("created_at", -1).to_list(5000)
 
 
+async def _check_app_owner(user_id: str, app_id: Optional[str]):
+    if app_id and not await db.applications.find_one({"id": app_id, "user_id": user_id}, {"_id": 1}):
+        raise HTTPException(status_code=400, detail="Linked application not found")
+
+
 @api_router.post("/assessments")
 async def create_assessment(payload: Dict[str, Any], user: dict = Depends(get_current_user)):
+    await _check_app_owner(user["user_id"], payload.get("application_id"))
     doc = {k: v for k, v in payload.items() if k not in ("id", "user_id", "_id")}
     doc.update({"id": str(uuid.uuid4()), "user_id": user["user_id"],
                 "created_at": now_iso(), "updated_at": now_iso()})
@@ -487,6 +504,7 @@ async def delete_assessment(a_id: str, user: dict = Depends(get_current_user)):
     res = await db.assessments.delete_one({"id": a_id, "user_id": user["user_id"]})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
+    await log_activity(user["user_id"], "deleted", "Assessment", a_id, "Assessment deleted")
     return {"ok": True}
 
 
@@ -504,6 +522,7 @@ async def list_interviews(application_id: Optional[str] = None, status: Optional
 
 @api_router.post("/interviews")
 async def create_interview(payload: Dict[str, Any], user: dict = Depends(get_current_user)):
+    await _check_app_owner(user["user_id"], payload.get("application_id"))
     doc = {k: v for k, v in payload.items() if k not in ("id", "user_id", "_id")}
     doc.update({"id": str(uuid.uuid4()), "user_id": user["user_id"],
                 "created_at": now_iso(), "updated_at": now_iso()})
@@ -532,6 +551,7 @@ async def delete_interview(i_id: str, user: dict = Depends(get_current_user)):
     res = await db.interviews.delete_one({"id": i_id, "user_id": user["user_id"]})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
+    await log_activity(user["user_id"], "deleted", "Interview", i_id, "Interview deleted")
     return {"ok": True}
 
 
@@ -558,7 +578,7 @@ async def upload_resume(
         raise HTTPException(status_code=400, detail="File too large (max 10MB)")
     path = f"{APP_NAME}/resumes/{user['user_id']}/{uuid.uuid4()}.{ext}"
     ct = file.content_type or ("application/pdf" if ext == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-    result = put_object(path, data, ct)
+    result = await run_in_threadpool(put_object, path, data, ct)
     doc = {
         "id": str(uuid.uuid4()), "user_id": user["user_id"], "name": name,
         "storage_path": result["path"], "original_filename": file.filename, "content_type": ct,
@@ -603,7 +623,7 @@ async def download_resume(r_id: str, authorization: Optional[str] = Header(None)
     record = await db.resumes.find_one({"id": r_id, "user_id": session["user_id"], "is_deleted": {"$ne": True}}, {"_id": 0})
     if not record:
         raise HTTPException(status_code=404, detail="Not found")
-    content, ct = get_object(record["storage_path"])
+    content, ct = await run_in_threadpool(get_object, record["storage_path"])
     return Response(content=content, media_type=record.get("content_type", ct),
                     headers={"Content-Disposition": f'inline; filename="{record["original_filename"]}"'})
 
@@ -738,6 +758,9 @@ async def analytics(date_from: Optional[str] = None, date_to: Optional[str] = No
 
     df = parse(date_from) if date_from else None
     dt_to = parse(date_to) if date_to else None
+    if dt_to and len(date_to) <= 10:
+        dt_to = dt_to + timedelta(days=1) - timedelta(microseconds=1)
+    filtered = any([date_from, date_to, category_id, company, status, source])
 
     def in_range(a):
         if category_id and a.get("category_id") != category_id:
@@ -819,7 +842,7 @@ async def analytics(date_from: Optional[str] = None, date_to: Optional[str] = No
         elif st in ("No Response", "Applied"):
             outcomes["No Response"] += 1
 
-    fassess = [a for a in assessments if a.get("application_id") in app_ids or not app_ids]
+    fassess = [a for a in assessments if a.get("application_id") in app_ids or not filtered]
     assess_stats = {"Received": 0, "Pending": 0, "Completed": 0, "Passed": 0, "Failed": 0, "Expired": 0}
     for a in fassess:
         st = a.get("status")
@@ -836,7 +859,7 @@ async def analytics(date_from: Optional[str] = None, date_to: Optional[str] = No
         elif st == "Expired":
             assess_stats["Expired"] += 1
 
-    fiv = [i for i in interviews if i.get("application_id") in app_ids or not app_ids]
+    fiv = [i for i in interviews if i.get("application_id") in app_ids or not filtered]
     iv_stats = {"Scheduled": 0, "Completed": 0, "Passed": 0, "Failed": 0, "Awaiting Feedback": 0}
     for i in fiv:
         st = i.get("status")
@@ -968,6 +991,10 @@ async def restore_backup(payload: RestorePayload, user: dict = Depends(get_curre
         for r in rows:
             r.pop("_id", None)
             r["user_id"] = uid
+            if coll == "user_preferences":
+                await db.user_preferences.update_one({"user_id": uid}, {"$set": r}, upsert=True)
+                inserted += 1
+                continue
             if not r.get("id") and coll != "user_preferences":
                 r["id"] = str(uuid.uuid4())
             if payload.mode == "merge" and r.get("id"):

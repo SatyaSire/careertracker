@@ -1,0 +1,59 @@
+{
+  "summary": "First full E2E run of CareerTrack BI. Backend: 33 pytest cases, 30 passed (auth/401, categories, applications CRUD+search+filter+status history+duplicate, assessments, interviews, resume upload/download/soft-delete via object storage, contacts/companies/reminders, activity, KPIs, analytics, prefs, exports, restore merge, data isolation verified with a 2nd seeded user). Frontend: cookie auth redirect, all pages, create flows via UI, resume upload+download, analytics filters/reset/period toggle, settings theme/currency/exports/restore, mobile nav all work. One HIGH bug: applications created from the UI form get status '' and application_date '' (form sends empty strings), which breaks KPIs, analytics, status badge and sorting.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/applications (with ApplicationForm)", "issue": "FormDialog sets every field to '' at start, so payload has status:'' and application_date:''. Backend doc.setdefault() does not replace empty strings, so the saved app has an empty status and date. Result: status badge is blank, Applied column shows '—', and KPIs (Active, Awaiting, This Month), the analytics funnel/outcomes/over-time and date sort all leave the app out. Reproduced in UI: 'TEST_UI QA Engineer' was saved with status='' and application_date=''.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/applications?search=", "issue": "The user's search text goes into $regex without re.escape. Search 'C++ (' returns 500, and so does any job title containing + ( [ ? *."},
+      {"endpoint": "GET /api/analytics", "issue": "When filters match 0 apps, app_ids is empty, so the condition `... or not app_ids` pulls in ALL assessments and interviews. Their stats are then shown for an empty filter."},
+      {"endpoint": "GET /api/analytics date_to", "issue": "date_to 'YYYY-MM-DD' parses to midnight, so apps later on that day are excluded (not inclusive of the selected end day)."},
+      {"endpoint": "POST /api/restore (merge)", "issue": "user_preferences rows have no 'id', so the merge path always inserts. This creates duplicate preference docs per user (reproduced: 2 docs after one merge restore)."},
+      {"endpoint": "POST /api/applications/{id}/duplicate", "issue": "No status_history entry is created for the duplicate, and it keeps application_date and resume links from the original."},
+      {"endpoint": "POST /api/assessments, /api/interviews, /api/reminders", "issue": "application_id ownership is not validated, so a user can link to another user's app id. Nothing leaks, but orphan records are created."},
+      {"endpoint": "DELETE assessments/interviews, PUT/DELETE categories, PUT/DELETE resumes", "issue": "These actions write no activity_log entry, so activity history is incomplete."},
+      {"endpoint": "auth_session/put_object/get_object", "issue": "Sync `requests` is called inside async handlers and blocks the event loop. Uploads have a 120s timeout. Use httpx.AsyncClient or run_in_threadpool."},
+      {"endpoint": "GET /api/resumes/{id}/download?auth=", "issue": "The session token is accepted as a query param, which risks leaking it through URLs and logs. The frontend uses blob + cookie, so this path can be removed."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ApplicationForm", "issue": "No default for status (Applied) or application_date (today), so the status badge renders an empty grey pill (same root cause as the backend critical issue).", "selector": "[data-testid=application-field-status]", "priority": "HIGH"},
+      {"component": "Dashboard KPI 'Interviews Completed'", "issue": "Navigates to /interviews?status=Completed, but the Interviews page ignores the query param. Also, 'Assessments Pending' links status=Pending while the KPI counts Received/Not Started/In Progress/Pending.", "selector": "[data-testid=kpi-done-iv]", "priority": "LOW"},
+      {"component": "ApplicationDetail Timeline tab", "issue": "Renders only status history. The backend `timeline` (activity: assessment/interview added) is not shown.", "selector": "[data-testid=tab-timeline]", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Analytics/Settings data load", "issue": "api.get('/analytics') and '/preferences' have no .catch/error state. A failed call leaves the skeleton loading forever.", "affected_selectors": ["[data-testid=analytics-total]"]}
+    ],
+    "design_issues": [
+      {"screen": "Analytics By category pie", "issues": ["A single-category donut renders as an incomplete ring (gap from paddingAngle)"]},
+      {"screen": "Analytics filters / forms", "issues": ["Native browser date and datetime-local pickers are used instead of the shadcn Calendar/Popover"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_careertrack_api.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "HIGH: Default status='Applied' and application_date=today in ApplicationForm initial values, AND in the backend treat empty-string status/application_date as missing (create + update)",
+    "Escape the search/company regex with re.escape in GET /api/applications (and company filter)",
+    "Analytics: when filters are active and match 0 apps, return empty assessment/interview stats. Make date_to inclusive (end of day)",
+    "Restore merge: upsert user_preferences by user_id instead of inserting",
+    "Validate application_id ownership on assessment/interview/reminder create",
+    "Interviews page: honour ?status= query param. Align the Assessments Pending KPI link",
+    "Add error handling to the analytics/preferences fetches"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1016 lines; split into routers (auth, applications, analytics, export)",
+    "Blocking `requests` calls inside async endpoints (storage + auth session exchange)",
+    "Generic CRUD accepts arbitrary Dict payloads with no Pydantic validation (mass-assignment of any field)",
+    "page_size is unbounded on /applications",
+    "Category rename does not update the denormalized category_name on applications (search uses category_name)",
+    "datetime-local interview_date is stored without a timezone and the backend parses it as UTC"
+  ],
+  "updated_files": ["/app/backend/tests/test_careertrack_api.py"],
+  "success_rate": {"backend": "91% (30/33)", "frontend": "~90% (all flows work; empty status/date bug affects KPIs and analytics)"},
+  "test_credentials": "Bearer/cookie session_token=test_session_satya (user_test_satya). A temp 2nd user user_test_other was created for the isolation test and removed.",
+  "seed_data_creation": "All TEST data for user_test_satya was deleted after the run (applications, categories, companies, contacts, reminders, resumes, assessments, interviews). The prefs doc was kept with currency INR / theme dark. Activity logs remain.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/test_careertrack_api.py` (pytest.ini forces -n 2 loadscope; use -n 0 for serial). The 3 expected failures are regex 500, the analytics empty-filter leak, and the restore prefs dup. After the fix, check that the UI-created application shows the 'Applied' badge and counts in the Active/Awaiting/This Month KPIs and in analytics over-time. Also check the Interviews ?status param.",
+  "rca of the issue": "Empty status/date: FormDialog useEffect initialises every field to '' (FormDialog.jsx line ~19). ApplicationForm sends all keys, and server.create_application uses doc.setdefault('status','Applied'), which is a no-op when the key exists with ''. Fix: give the form defaults, and/or in the backend `if not doc.get('status'): doc['status']='Applied'` (same for application_date)."
+}

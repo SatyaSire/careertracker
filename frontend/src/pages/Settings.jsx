@@ -32,11 +32,11 @@ export default function Settings() {
   const [mode, setMode] = useState("merge");
   const fileRef = useRef(null);
 
-  useEffect(() => { api.get("/preferences").then(({ data }) => setCurrency(data.currency || "INR")); }, []);
+  useEffect(() => { api.get("/preferences").then(({ data }) => setCurrency(data.currency || "INR")).catch(() => {}); }, []);
 
   const savePref = async (patch) => {
-    await api.put("/preferences", patch);
-    toast.success("Preferences saved");
+    try { await api.put("/preferences", patch); toast.success("Preferences saved"); }
+    catch { toast.error("Could not save preferences"); }
   };
 
   const changeTheme = (t) => { setTheme(t); savePref({ theme: t }); };
