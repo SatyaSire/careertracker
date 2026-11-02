@@ -1,0 +1,58 @@
+{
+  "app_name": "CareerTrack BI",
+  "tagline": "Your Career. Your Applications. Your Intelligence.",
+  "theme_strategy": {
+    "default_mode": "dark",
+    "supported_modes": ["dark", "light"],
+    "primary_accent": "#6366f1",
+    "supporting_colors": {
+      "blue": "#3b82f6",
+      "emerald": "#10b981",
+      "amber": "#f59e0b",
+      "red": "#ef4444"
+    }
+  },
+  "typography": {
+    "heading_font": "Outfit, sans-serif",
+    "body_font": "Plus Jakarta Sans, sans-serif",
+    "mono_font": "JetBrains Mono, monospace"
+  },
+  "modules": [
+    "Overview Dashboard",
+    "All Applications",
+    "Job Categories",
+    "Assessments Tracker",
+    "Interviews & Calendar",
+    "Resume Library",
+    "Accounts & Contacts",
+    "Companies Directory",
+    "BI Analytics",
+    "Reminders & Follow-ups",
+    "Activity History",
+    "Settings & Backup"
+  ],
+  "image_urls": [
+    {
+      "category": "profile_avatars",
+      "description": "Professional executive portraits for contact and profile cards",
+      "url": "https://images.unsplash.com/photo-1560250097-0b93528c311a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjByZXN1bWUlMjBwb3J0cmFpdCUyMGNvcnBvcmF0ZSUyMGV4ZWN1dGl2ZXxlbnwwfHx8fDE3OTM2MjIxNzh8MA&ixlib=rb-4.1.0&q=85"
+    },
+    {
+      "category": "contact_avatar_2",
+      "description": "Professional female recruiter portrait",
+      "url": "https://images.unsplash.com/photo-1582896911227-c966f6e7fb93?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjByZXN1bWUlMjBwb3J0cmFpdCUyMGNvcnBvcmF0ZSUyMGV4ZWN1dGl2ZXxlbnwwfHx8fDE3OTM2MjIxNzh8MA&ixlib=rb-4.1.0&q=85"
+    },
+    {
+      "category": "contact_avatar_3",
+      "description": "Professional smiling HR manager portrait",
+      "url": "https://images.unsplash.com/photo-1585240975858-7264fd020798?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjByZXN1bWUlMjBwb3J0cmFpdCUyMGNvcnBvcmF0ZSUyMGV4ZWN1dGl2ZXxlbnwwfHx8fDE3OTM2MjIxNzh8MA&ixlib=rb-4.1.0&q=85"
+    }
+  ],
+  "universal_guidelines": [
+    "Complete dark mode and light mode with user-controlled switching, opening in dark mode by default.",
+    "All interactive and key informational elements MUST include a data-testid attribute.",
+    "NO transparent backgrounds for headers, dropdowns or modals over content.",
+    "High density dashboard widgets and smooth Shadcn/UI primitives integrated with Recharts for analytics.",
+    "Robust data persistence with local storage and full JSON/CSV export and JSON restore capabilities."
+  ]
+}
